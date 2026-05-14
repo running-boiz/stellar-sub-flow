@@ -80,6 +80,8 @@ export const subscriptionAPI = {
   getUserSubscriptions: () => api.get('/subscriptions/user'),
   getSubscription: (id) => api.get(`/subscriptions/${id}`),
   cancelSubscription: (subscriptionId) => api.post('/subscriptions/cancel', { subscriptionId }),
+  updateSubscription: (subscriptionId, newPlanId) =>
+    api.post('/subscriptions/update', { subscriptionId, newPlanId }),
 };
 
 export const paymentAPI = {

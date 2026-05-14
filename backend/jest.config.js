@@ -1,5 +1,6 @@
 module.exports = {
   testEnvironment: 'node',
+  setupFiles: ['<rootDir>/tests/env.js'],
   setupFilesAfterEnv: ['<rootDir>/tests/setup.js'],
   testMatch: ['<rootDir>/tests/**/*.test.js'],
   collectCoverageFrom: [
@@ -14,6 +15,6 @@ module.exports = {
   testTimeout: 10000,
   forceExit: true,
   clearMocks: true,
-  resetMocks: true,
+  resetMocks: false,
   restoreMocks: true
 };

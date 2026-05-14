@@ -6,17 +6,15 @@ const Plan = require('../src/models/Plan');
 const Subscription = require('../src/models/Subscription');
 const { createTestUser, createTestPlan, createTestSubscription, loginTestUser } = require('./helpers');
 
-// Mock Stripe
+// Mock Stripe using a self-contained factory with a stable shared instance
 jest.mock('stripe', () => {
-  return jest.fn().mockImplementation(() => ({
+  const instance = {
     customers: {
-      create: jest.fn().mockResolvedValue({
-        id: 'cus_test123'
-      }),
+      create: jest.fn().mockResolvedValue({ id: 'cus_test123' }),
       update: jest.fn().mockResolvedValue({}),
-      paymentMethods: {
-        attach: jest.fn().mockResolvedValue({})
-      }
+    },
+    paymentMethods: {
+      attach: jest.fn().mockResolvedValue({}),
     },
     subscriptions: {
       create: jest.fn().mockResolvedValue({
@@ -24,17 +22,14 @@ jest.mock('stripe', () => {
         status: 'incomplete',
         current_period_start: Math.floor(Date.now() / 1000),
         current_period_end: Math.floor((Date.now() + 30 * 24 * 60 * 60 * 1000) / 1000),
-        latest_invoice: {
-          payment_intent: {
-            client_secret: 'pi_test123_secret'
-          }
-        }
+        latest_invoice: { payment_intent: { client_secret: 'pi_test123_secret' } }
       }),
-      update: jest.fn().mockResolvedValue({
-        cancel_at_period_end: true
-      })
+      update: jest.fn().mockResolvedValue({ cancel_at_period_end: true }),
     }
-  }));
+  };
+  const stripeMock = jest.fn().mockReturnValue(instance);
+  stripeMock._instance = instance;
+  return stripeMock;
 });
 
 describe('Subscription Endpoints', () => {
@@ -224,8 +219,7 @@ describe('Subscription Endpoints', () => {
 
     describe('Edge Cases', () => {
       it('should handle Stripe API errors gracefully', async () => {
-        const stripe = require('stripe');
-        stripe().subscriptions.create.mockRejectedValueOnce(new Error('Stripe API Error'));
+        require('stripe')._instance.subscriptions.create.mockRejectedValueOnce(new Error('Stripe API Error'));
 
         const subscriptionData = {
           planId: testPlan._id.toString(),
@@ -354,8 +348,7 @@ describe('Subscription Endpoints', () => {
 
     describe('Edge Cases', () => {
       it('should handle Stripe API errors gracefully', async () => {
-        const stripe = require('stripe');
-        stripe().subscriptions.update.mockRejectedValueOnce(new Error('Stripe API Error'));
+        require('stripe')._instance.subscriptions.update.mockRejectedValueOnce(new Error('Stripe API Error'));
 
         const cancelData = {
           subscriptionId: activeSubscription._id.toString()

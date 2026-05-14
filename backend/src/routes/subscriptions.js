@@ -162,6 +162,54 @@ router.post('/cancel', auth, [
   }
 });
 
+router.post('/update', auth, [
+  body('subscriptionId').isMongoId(),
+  body('newPlanId').isMongoId(),
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { subscriptionId, newPlanId } = req.body;
+
+    const subscription = await Subscription.findOne({
+      _id: subscriptionId,
+      user: req.user._id,
+    }).populate('plan');
+
+    if (!subscription) {
+      return res.status(404).json({ message: 'Subscription not found' });
+    }
+
+    if (subscription.plan._id.toString() === newPlanId) {
+      return res.status(400).json({ message: 'New plan is the same as the current plan' });
+    }
+
+    const newPlan = await Plan.findById(newPlanId);
+    if (!newPlan || !newPlan.isActive) {
+      return res.status(400).json({ message: 'New plan not found' });
+    }
+
+    const stripeSubscription = await stripe.subscriptions.retrieve(subscription.stripeSubscriptionId);
+    const itemId = stripeSubscription.items.data[0].id;
+
+    await stripe.subscriptions.update(subscription.stripeSubscriptionId, {
+      items: [{ id: itemId, price: newPlan.stripePriceId }],
+      proration_behavior: 'create_prorations',
+    });
+
+    subscription.plan = newPlan._id;
+    await subscription.save();
+
+    res.json({ message: 'Subscription updated successfully', subscription });
+  } catch (error) {
+    console.error('Update subscription error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 router.get('/:subscriptionId', auth, async (req, res) => {
   try {
     const subscription = await Subscription.findOne({

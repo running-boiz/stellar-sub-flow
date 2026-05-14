@@ -5,6 +5,7 @@ const { body, validationResult } = require('express-validator');
 const User = require('../models/User');
 const RefreshToken = require('../models/RefreshToken');
 const auth = require('../middleware/auth');
+const { tokenBlocklist } = require('../middleware/auth');
 const router = express.Router();
 
 // In-memory blocklist for invalidated access tokens (jti-based)
@@ -189,4 +190,40 @@ router.get('/me', auth, async (req, res) => {
   }
 });
 
+// POST /api/auth/logout — invalidate access token and refresh token
+router.post('/logout', auth, (req, res) => {
+  const accessToken = req.header('Authorization')?.replace('Bearer ', '');
+  if (accessToken) {
+    tokenBlocklist.add(accessToken);
+  }
+
+  const refreshToken = req.cookies?.refreshToken;
+  if (refreshToken) {
+    refreshTokenStore.delete(refreshToken);
+  }
+
+  res.clearCookie('refreshToken');
+  res.json({ message: 'Logged out successfully' });
+});
+
+// POST /api/auth/refresh — issue new access token from refresh token cookie
+router.post('/refresh', (req, res) => {
+  const refreshToken = req.cookies?.refreshToken;
+
+  if (!refreshToken || !refreshTokenStore.has(refreshToken)) {
+    return res.status(401).json({ message: 'Invalid or missing refresh token' });
+  }
+
+  try {
+    const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET + '_refresh');
+    const newAccessToken = generateAccessToken(decoded.userId);
+    res.json({ token: newAccessToken });
+  } catch (error) {
+    refreshTokenStore.delete(refreshToken);
+    res.clearCookie('refreshToken');
+    res.status(401).json({ message: 'Refresh token expired or invalid' });
+  }
+});
+
 module.exports = router;
+module.exports.refreshTokenStore = refreshTokenStore;

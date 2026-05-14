@@ -6,13 +6,16 @@ const Plan = require('../src/models/Plan');
 const Subscription = require('../src/models/Subscription');
 const { createTestUser, createTestPlan, createTestSubscription } = require('./helpers');
 
-// Mock Stripe
+// Mock Stripe using a self-contained factory with a stable shared instance
 jest.mock('stripe', () => {
-  return jest.fn().mockImplementation(() => ({
+  const instance = {
     webhooks: {
       constructEvent: jest.fn()
     }
-  }));
+  };
+  const stripeMock = jest.fn().mockReturnValue(instance);
+  stripeMock._instance = instance;
+  return stripeMock;
 });
 
 describe('Webhook Endpoints', () => {
@@ -21,6 +24,9 @@ describe('Webhook Endpoints', () => {
   let testSubscription;
 
   beforeEach(async () => {
+    // Reset constructEvent mock implementation before each test
+    require('stripe')._instance.webhooks.constructEvent.mockReset();
+
     testUser = await createTestUser({
       email: 'webhooktest@example.com',
       password: 'password123',
@@ -42,7 +48,6 @@ describe('Webhook Endpoints', () => {
   describe('POST /api/webhooks/stripe', () => {
     describe('invoice.payment_succeeded Event', () => {
       it('should mark subscription as active when payment succeeds', async () => {
-        const stripe = require('stripe');
         const invoiceData = {
           subscription: 'sub_webhook123',
           payment_intent: 'pi_test123'
@@ -56,7 +61,7 @@ describe('Webhook Endpoints', () => {
           }
         };
 
-        stripe().webhooks.constructEvent.mockReturnValue(eventData);
+        require('stripe')._instance.webhooks.constructEvent.mockReturnValue(eventData);
 
         const payload = JSON.stringify(eventData);
         const signature = crypto.createHmac('sha256', process.env.STRIPE_WEBHOOK_SECRET)
@@ -77,7 +82,6 @@ describe('Webhook Endpoints', () => {
       });
 
       it('should handle invoice without subscription gracefully', async () => {
-        const stripe = require('stripe');
         const invoiceData = {
           payment_intent: 'pi_test123'
           // No subscription field
@@ -91,7 +95,7 @@ describe('Webhook Endpoints', () => {
           }
         };
 
-        stripe().webhooks.constructEvent.mockReturnValue(eventData);
+        require('stripe')._instance.webhooks.constructEvent.mockReturnValue(eventData);
 
         const payload = JSON.stringify(eventData);
         const signature = crypto.createHmac('sha256', process.env.STRIPE_WEBHOOK_SECRET)
@@ -108,7 +112,6 @@ describe('Webhook Endpoints', () => {
       });
 
       it('should handle non-existent subscription gracefully', async () => {
-        const stripe = require('stripe');
         const invoiceData = {
           subscription: 'sub_nonexistent',
           payment_intent: 'pi_test123'
@@ -122,7 +125,7 @@ describe('Webhook Endpoints', () => {
           }
         };
 
-        stripe().webhooks.constructEvent.mockReturnValue(eventData);
+        require('stripe')._instance.webhooks.constructEvent.mockReturnValue(eventData);
 
         const payload = JSON.stringify(eventData);
         const signature = crypto.createHmac('sha256', process.env.STRIPE_WEBHOOK_SECRET)
@@ -141,7 +144,6 @@ describe('Webhook Endpoints', () => {
 
     describe('customer.subscription.deleted Event', () => {
       it('should mark subscription as canceled when subscription is deleted', async () => {
-        const stripe = require('stripe');
         const subscriptionData = {
           id: 'sub_webhook123',
           status: 'canceled',
@@ -158,7 +160,7 @@ describe('Webhook Endpoints', () => {
           }
         };
 
-        stripe().webhooks.constructEvent.mockReturnValue(eventData);
+        require('stripe')._instance.webhooks.constructEvent.mockReturnValue(eventData);
 
         const payload = JSON.stringify(eventData);
         const signature = crypto.createHmac('sha256', process.env.STRIPE_WEBHOOK_SECRET)
@@ -180,7 +182,6 @@ describe('Webhook Endpoints', () => {
       });
 
       it('should handle non-existent subscription gracefully', async () => {
-        const stripe = require('stripe');
         const subscriptionData = {
           id: 'sub_nonexistent',
           status: 'canceled',
@@ -195,7 +196,7 @@ describe('Webhook Endpoints', () => {
           }
         };
 
-        stripe().webhooks.constructEvent.mockReturnValue(eventData);
+        require('stripe')._instance.webhooks.constructEvent.mockReturnValue(eventData);
 
         const payload = JSON.stringify(eventData);
         const signature = crypto.createHmac('sha256', process.env.STRIPE_WEBHOOK_SECRET)
@@ -214,8 +215,7 @@ describe('Webhook Endpoints', () => {
 
     describe('Webhook Validation', () => {
       it('should return 400 for invalid signature', async () => {
-        const stripe = require('stripe');
-        stripe().webhooks.constructEvent.mockImplementation(() => {
+        require('stripe')._instance.webhooks.constructEvent.mockImplementation(() => {
           throw new Error('Invalid signature');
         });
 
@@ -257,14 +257,13 @@ describe('Webhook Endpoints', () => {
 
     describe('Unhandled Events', () => {
       it('should handle unhandled event types gracefully', async () => {
-        const stripe = require('stripe');
         const eventData = {
           id: 'evt_test789',
           type: 'account.updated',
           data: { object: {} }
         };
 
-        stripe().webhooks.constructEvent.mockReturnValue(eventData);
+        require('stripe')._instance.webhooks.constructEvent.mockReturnValue(eventData);
 
         const payload = JSON.stringify(eventData);
         const signature = crypto.createHmac('sha256', process.env.STRIPE_WEBHOOK_SECRET)
@@ -283,7 +282,6 @@ describe('Webhook Endpoints', () => {
 
     describe('Error Handling', () => {
       it('should handle webhook processing errors gracefully', async () => {
-        const stripe = require('stripe');
         const invoiceData = {
           subscription: 'sub_webhook123'
         };
@@ -296,13 +294,12 @@ describe('Webhook Endpoints', () => {
           }
         };
 
-        stripe().webhooks.constructEvent.mockReturnValue(eventData);
+        require('stripe')._instance.webhooks.constructEvent.mockReturnValue(eventData);
 
-        // Mock database error by breaking the Subscription model
-        const originalSave = Subscription.prototype.save;
-        Subscription.prototype.save = function() {
+        // Mock database error using jest.spyOn for proper restoration
+        const saveSpy = jest.spyOn(Subscription.prototype, 'save').mockImplementation(() => {
           throw new Error('Database connection failed');
-        };
+        });
 
         const payload = JSON.stringify(eventData);
         const signature = crypto.createHmac('sha256', process.env.STRIPE_WEBHOOK_SECRET)
@@ -317,14 +314,12 @@ describe('Webhook Endpoints', () => {
 
         expect(response.body).toHaveProperty('error', 'Webhook processing failed');
 
-        // Restore the original save method
-        Subscription.prototype.save = originalSave;
+        saveSpy.mockRestore();
       });
     });
 
     describe('Additional Events', () => {
       it('should handle invoice.payment_failed event', async () => {
-        const stripe = require('stripe');
         const invoiceData = {
           subscription: 'sub_webhook123'
         };
@@ -337,7 +332,7 @@ describe('Webhook Endpoints', () => {
           }
         };
 
-        stripe().webhooks.constructEvent.mockReturnValue(eventData);
+        require('stripe')._instance.webhooks.constructEvent.mockReturnValue(eventData);
 
         const payload = JSON.stringify(eventData);
         const signature = crypto.createHmac('sha256', process.env.STRIPE_WEBHOOK_SECRET)
@@ -358,7 +353,6 @@ describe('Webhook Endpoints', () => {
       });
 
       it('should handle customer.subscription.updated event', async () => {
-        const stripe = require('stripe');
         const subscriptionData = {
           id: 'sub_webhook123',
           status: 'active',
@@ -376,7 +370,7 @@ describe('Webhook Endpoints', () => {
           }
         };
 
-        stripe().webhooks.constructEvent.mockReturnValue(eventData);
+        require('stripe')._instance.webhooks.constructEvent.mockReturnValue(eventData);
 
         const payload = JSON.stringify(eventData);
         const signature = crypto.createHmac('sha256', process.env.STRIPE_WEBHOOK_SECRET)
@@ -399,7 +393,6 @@ describe('Webhook Endpoints', () => {
       });
 
       it('should handle customer.subscription.created event', async () => {
-        const stripe = require('stripe');
         const subscriptionData = {
           id: 'sub_webhook123',
           status: 'trialing',
@@ -417,7 +410,7 @@ describe('Webhook Endpoints', () => {
           }
         };
 
-        stripe().webhooks.constructEvent.mockReturnValue(eventData);
+        require('stripe')._instance.webhooks.constructEvent.mockReturnValue(eventData);
 
         const payload = JSON.stringify(eventData);
         const signature = crypto.createHmac('sha256', process.env.STRIPE_WEBHOOK_SECRET)
