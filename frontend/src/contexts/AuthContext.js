@@ -19,15 +19,9 @@ export const AuthProvider = ({ children }) => {
     const token = localStorage.getItem('token');
     if (token) {
       authAPI.getMe()
-        .then(response => {
-          setUser(response.data.user);
-        })
-        .catch(() => {
-          localStorage.removeItem('token');
-        })
-        .finally(() => {
-          setLoading(false);
-        });
+        .then(response => setUser(response.data.user))
+        .catch(() => localStorage.removeItem('token'))
+        .finally(() => setLoading(false));
     } else {
       setLoading(false);
     }
@@ -37,16 +31,11 @@ export const AuthProvider = ({ children }) => {
     try {
       const response = await authAPI.login(email, password);
       const { token, user } = response.data;
-      
       localStorage.setItem('token', token);
       setUser(user);
-      
       return { success: true };
     } catch (error) {
-      return { 
-        success: false, 
-        error: error.response?.data?.message || 'Login failed' 
-      };
+      return { success: false, error: error.response?.data?.message || 'Login failed' };
     }
   };
 
@@ -54,16 +43,11 @@ export const AuthProvider = ({ children }) => {
     try {
       const response = await authAPI.register(userData);
       const { token, user } = response.data;
-      
       localStorage.setItem('token', token);
       setUser(user);
-      
       return { success: true };
     } catch (error) {
-      return { 
-        success: false, 
-        error: error.response?.data?.message || 'Registration failed' 
-      };
+      return { success: false, error: error.response?.data?.message || 'Registration failed' };
     }
   };
 
@@ -71,19 +55,13 @@ export const AuthProvider = ({ children }) => {
     try {
       await authAPI.logout();
     } catch (_) {
-      // best-effort: clear client state regardless
+      // proceed with local cleanup even if server call fails
     }
     localStorage.removeItem('token');
     setUser(null);
   };
 
-  const value = {
-    user,
-    login,
-    register,
-    logout,
-    loading
-  };
+  const value = { user, login, register, logout, loading };
 
   return (
     <AuthContext.Provider value={value}>

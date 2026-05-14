@@ -4,10 +4,8 @@ const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api
 
 const api = axios.create({
   baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-  withCredentials: true, // send httpOnly refresh cookie
+  headers: { 'Content-Type': 'application/json' },
+  withCredentials: true, // send httpOnly refresh token cookie
 });
 
 api.interceptors.request.use((config) => {
@@ -22,13 +20,7 @@ let isRefreshing = false;
 let failedQueue = [];
 
 const processQueue = (error, token = null) => {
-  failedQueue.forEach((prom) => {
-    if (error) {
-      prom.reject(error);
-    } else {
-      prom.resolve(token);
-    }
-  });
+  failedQueue.forEach((prom) => (error ? prom.reject(error) : prom.resolve(token)));
   failedQueue = [];
 };
 
@@ -44,22 +36,21 @@ api.interceptors.response.use(
         }).then((token) => {
           originalRequest.headers.Authorization = `Bearer ${token}`;
           return api(originalRequest);
-        }).catch((err) => Promise.reject(err));
+        });
       }
 
       originalRequest._retry = true;
       isRefreshing = true;
 
       try {
-        const response = await axios.post(
+        const { data } = await axios.post(
           `${API_BASE_URL}/auth/refresh`,
           {},
           { withCredentials: true }
         );
-        const { token } = response.data;
-        localStorage.setItem('token', token);
-        processQueue(null, token);
-        originalRequest.headers.Authorization = `Bearer ${token}`;
+        localStorage.setItem('token', data.token);
+        processQueue(null, data.token);
+        originalRequest.headers.Authorization = `Bearer ${data.token}`;
         return api(originalRequest);
       } catch (refreshError) {
         processQueue(refreshError, null);
@@ -94,11 +85,11 @@ export const subscriptionAPI = {
 };
 
 export const paymentAPI = {
-  createPaymentIntent: (amount, currency = 'usd') => 
+  createPaymentIntent: (amount, currency = 'usd') =>
     api.post('/payments/create-intent', { amount, currency }),
   createSetupIntent: () => api.post('/payments/create-setup-intent'),
   getPaymentMethods: () => api.get('/payments/payment-methods'),
-  attachPaymentMethod: (paymentMethodId) => 
+  attachPaymentMethod: (paymentMethodId) =>
     api.post('/payments/attach-payment-method', { paymentMethodId }),
 };
 

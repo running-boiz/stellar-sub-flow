@@ -31,7 +31,9 @@ app.use(cors({
 }));
 app.use(limiter);
 
-// Webhook route must be registered before express.json() so it receives the raw body
+app.use(cookieParser());
+
+// Must be registered before express.json() so the raw body is available for Stripe signature verification
 app.use('/api/webhooks', webhookRoutes);
 
 app.use(express.json({ limit: '10mb' }));
