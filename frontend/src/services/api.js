@@ -7,6 +7,7 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  withCredentials: true, // send httpOnly refresh cookie
 });
 
 api.interceptors.request.use((config) => {
@@ -17,13 +18,59 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+let isRefreshing = false;
+let failedQueue = [];
+
+const processQueue = (error, token = null) => {
+  failedQueue.forEach((prom) => {
+    if (error) {
+      prom.reject(error);
+    } else {
+      prom.resolve(token);
+    }
+  });
+  failedQueue = [];
+};
+
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('token');
-      window.location.href = '/login';
+  async (error) => {
+    const originalRequest = error.config;
+
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      if (isRefreshing) {
+        return new Promise((resolve, reject) => {
+          failedQueue.push({ resolve, reject });
+        }).then((token) => {
+          originalRequest.headers.Authorization = `Bearer ${token}`;
+          return api(originalRequest);
+        }).catch((err) => Promise.reject(err));
+      }
+
+      originalRequest._retry = true;
+      isRefreshing = true;
+
+      try {
+        const response = await axios.post(
+          `${API_BASE_URL}/auth/refresh`,
+          {},
+          { withCredentials: true }
+        );
+        const { token } = response.data;
+        localStorage.setItem('token', token);
+        processQueue(null, token);
+        originalRequest.headers.Authorization = `Bearer ${token}`;
+        return api(originalRequest);
+      } catch (refreshError) {
+        processQueue(refreshError, null);
+        localStorage.removeItem('token');
+        window.location.href = '/login';
+        return Promise.reject(refreshError);
+      } finally {
+        isRefreshing = false;
+      }
     }
+
     return Promise.reject(error);
   }
 );
@@ -32,6 +79,8 @@ export const authAPI = {
   login: (email, password) => api.post('/auth/login', { email, password }),
   register: (userData) => api.post('/auth/register', userData),
   getMe: () => api.get('/auth/me'),
+  logout: () => api.post('/auth/logout'),
+  refresh: () => api.post('/auth/refresh'),
 };
 
 export const subscriptionAPI = {
@@ -40,6 +89,8 @@ export const subscriptionAPI = {
   getUserSubscriptions: () => api.get('/subscriptions/user'),
   getSubscription: (id) => api.get(`/subscriptions/${id}`),
   cancelSubscription: (subscriptionId) => api.post('/subscriptions/cancel', { subscriptionId }),
+  updateSubscription: (subscriptionId, newPlanId) =>
+    api.post('/subscriptions/update', { subscriptionId, newPlanId }),
 };
 
 export const paymentAPI = {

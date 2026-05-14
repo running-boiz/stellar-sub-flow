@@ -9,6 +9,10 @@ router.post('/stripe', express.raw({ type: 'application/json' }), async (req, re
   const sig = req.headers['stripe-signature'];
   let event;
 
+  if (!sig) {
+    return res.status(400).send('Webhook Error: No stripe-signature header found');
+  }
+
   try {
     event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
   } catch (err) {
@@ -64,6 +68,7 @@ async function handleInvoicePaymentSucceeded(invoice) {
     }
   } catch (error) {
     console.error('Error handling invoice payment succeeded:', error);
+    throw error;
   }
 }
 
@@ -82,6 +87,7 @@ async function handleInvoicePaymentFailed(invoice) {
     }
   } catch (error) {
     console.error('Error handling invoice payment failed:', error);
+    throw error;
   }
 }
 
@@ -106,6 +112,7 @@ async function handleSubscriptionUpdated(stripeSubscription) {
     }
   } catch (error) {
     console.error('Error handling subscription updated:', error);
+    throw error;
   }
 }
 
@@ -123,6 +130,7 @@ async function handleSubscriptionDeleted(stripeSubscription) {
     }
   } catch (error) {
     console.error('Error handling subscription deleted:', error);
+    throw error;
   }
 }
 
@@ -144,6 +152,7 @@ async function handleSubscriptionCreated(stripeSubscription) {
     }
   } catch (error) {
     console.error('Error handling subscription created:', error);
+    throw error;
   }
 }
 

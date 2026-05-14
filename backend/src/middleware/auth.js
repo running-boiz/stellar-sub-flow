@@ -1,12 +1,19 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 
+// In-memory blocklist for invalidated access tokens
+const tokenBlocklist = new Set();
+
 const auth = async (req, res, next) => {
   try {
     const token = req.header('Authorization')?.replace('Bearer ', '');
     
     if (!token) {
       return res.status(401).json({ message: 'No token, authorization denied' });
+    }
+
+    if (tokenBlocklist.has(token)) {
+      return res.status(401).json({ message: 'Token has been invalidated' });
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
@@ -29,3 +36,4 @@ const auth = async (req, res, next) => {
 };
 
 module.exports = auth;
+module.exports.tokenBlocklist = tokenBlocklist;
