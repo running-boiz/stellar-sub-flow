@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const cookieParser = require('cookie-parser');
 const connectDB = require('./config/database');
 
 const authRoutes = require('./routes/auth');
@@ -27,13 +28,18 @@ app.use(cors({
   credentials: true,
 }));
 app.use(limiter);
+
+app.use(cookieParser());
+
+// Must be registered before express.json() so the raw body is available for Stripe signature verification
+app.use('/api/webhooks', webhookRoutes);
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/payments', paymentRoutes);
-app.use('/api/webhooks', webhookRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
